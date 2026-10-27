@@ -10,15 +10,23 @@ namespace ServerApp
     {
         static async Task Main(string[] args)
         {
-            using var listener = new UdpClient(4567);
+            var localEndPoint = new IPEndPoint(IPAddress.Any, 4567);
 
-            Console.WriteLine("Server hazırdır. Gözləyir...");
+            using var serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            serverSocket.Bind(localEndPoint);
+
+            Console.WriteLine("Server ready. Waiting...");
+
+            var receiveBuffer = new byte[1024];
 
             while (true)
             {
-                var result = await listener.ReceiveAsync();
-                string msg = Encoding.UTF8.GetString(result.Buffer).Trim().ToLower();
-                Console.WriteLine($"{result.RemoteEndPoint} => {msg}");
+                EndPoint remoteEndPoint = new IPEndPoint(IPAddress.Any, 0);
+
+                var receiveResult = await serverSocket.ReceiveFromAsync(receiveBuffer, SocketFlags.None, remoteEndPoint);
+                string msg = Encoding.UTF8.GetString(receiveBuffer, 0, receiveResult.ReceivedBytes).Trim().ToLower();
+
+                Console.WriteLine($"{receiveResult.RemoteEndPoint} => {msg}");
 
                 if (msg == "screenshot")
                 {
@@ -32,12 +40,17 @@ namespace ServerApp
                     }
 
                     using var ms = new MemoryStream();
+
                     bitmap.Save(ms, ImageFormat.Jpeg);
                     byte[] imgBytes = ms.ToArray();
 
-                    if (imgBytes.Length < 60000)
+                    if (imgBytes.Length < 65507)
                     {
-                        await listener.SendAsync(imgBytes, imgBytes.Length, result.RemoteEndPoint);
+                        await serverSocket.SendToAsync(imgBytes, SocketFlags.None, receiveResult.RemoteEndPoint);
+                    }
+                    else
+                    {
+                        Console.WriteLine("Image size is larger than UDP limit!");
                     }
                 }
             }
